@@ -1,0 +1,193 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.Networking;
+
+public class AFADownloader : MonoBehaviour
+{
+    bool ENABLE_LOGS;
+    string uniqueHash;
+    string fileName;
+    static string filePath = Application.persistentDataPath + "/"+
+           "AFADownloader"+ "/";
+
+    /// <summary>
+    /// Get instance of AFADownloader class
+    /// </summary>
+    public static AFADownloader Init()
+    {
+        return new GameObject("AFADownloader").AddComponent<AFADownloader>();
+    }
+    /// <summary>
+    /// Enable logs of AFADownloader class
+    /// </summary>
+    public AFADownloader EnableLogs(bool enableLogs)
+    {
+        if (ENABLE_LOGS)
+            Debug.Log("[AFADownloader] Url set : "+ enableLogs);
+
+        this.ENABLE_LOGS = enableLogs;
+        return this;
+    }
+
+    /// <summary>
+    /// Start AFADownloader process to download Texture2D.
+    /// </summary>
+    public void StartDownloader(string url,UnityAction<Texture2D> callback)
+    {
+        uniqueHash = CreateMD5(url);
+        fileName = filePath + uniqueHash;
+       
+        if (ENABLE_LOGS)
+            Debug.Log("[AFADownloader] file path "+ fileName);
+
+        if (!Directory.Exists(filePath))
+            Directory.CreateDirectory(filePath);
+
+
+        if (File.Exists(fileName) == false)
+        {
+            if (ENABLE_LOGS)
+                Debug.Log("[AFADownloader] download image from Web "+ fileName);
+
+            StartCoroutine(DownloadTexture(url, (response)=>{
+                callback(response);
+            }));
+        }
+        else
+        {
+            if (ENABLE_LOGS)
+                Debug.Log("[AFADownloader] load image from cache"+ fileName);
+
+            Byte[] imageByte = LoadDownloadedImageFromLocalFile(fileName);
+            Texture2D texture = new Texture2D(2, 2);
+            texture.LoadImage(imageByte);
+            callback(texture);
+        }
+
+
+        DownloadCompleted();
+    }
+
+    //=====================================================================================================
+    IEnumerator DownloadTexture(string url, Action<Texture2D> callback)
+    {
+        UnityWebRequest request = UnityWebRequestTexture.GetTexture(url);
+        yield return request.SendWebRequest();
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            if (ENABLE_LOGS)
+                Debug.LogError("[AFADownloader] DownloadTexture "+ url + "\n"+ request.error);
+            
+            callback(null);
+            request.Dispose();
+        }
+        else
+        {
+            File.WriteAllBytes(fileName, request.downloadHandler.data);
+            Texture2D tex = ((DownloadHandlerTexture)request.downloadHandler).texture;
+            tex.Compress(true);
+            callback(tex);
+            request.Dispose();
+        }
+    }
+
+    //=====================================================================================================
+    private void DownloadCompleted()
+    {
+        if (ENABLE_LOGS)
+            Debug.Log("[AFADownloader] Operation has been finished.");
+
+        Utils.DellayCall_Coroutine(1f, DestroyCreatedObject);
+    }
+
+    private void DestroyCreatedObject()
+    {
+        Destroy(gameObject);
+    }
+    
+    //=====================================================================================================
+    public static string CreateMD5(string input)
+    {
+        // Use input string to calculate MD5 hash
+        using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create())
+        {
+            byte[] inputBytes = Encoding.ASCII.GetBytes(input);
+            byte[] hashBytes = md5.ComputeHash(inputBytes);
+
+            // Convert the byte array to hexadecimal string
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < hashBytes.Length; i++)
+            {
+                sb.Append(hashBytes[i].ToString("X2"));
+            }
+            return sb.ToString();
+        }
+    }
+    byte[] LoadDownloadedImageFromLocalFile(string path)
+    {
+        byte[] dataByte = null;
+
+        //Exit if Directory or File does not exist
+        if (!Directory.Exists(Path.GetDirectoryName(path)))
+        {
+            return null;
+        }
+
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            dataByte = File.ReadAllBytes(path);
+        }
+        catch (Exception e)
+        {
+            if (ENABLE_LOGS)
+                Debug.LogWarning("[AFADownloader] Error: " + e.Message);
+        }
+
+        return dataByte;
+    }
+    /// <summary>
+    /// Clear a certain cached file with its url
+    /// </summary>
+    /// <param name="url">Cached file url.</param>
+    /// <returns></returns>
+    public static void ClearCache(string url)
+    {
+        try
+        {
+            File.Delete(filePath + CreateMD5(url));
+            Debug.Log("[AFADownloader] Clear cache file "+url);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("[AFADownloader] Error while removing cached file: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Clear all AFADownloader cached files
+    /// </summary>
+    /// <returns></returns>
+    public static void ClearAllCachedFiles()
+    {
+        try
+        {
+            Directory.Delete(filePath, true);
+            Debug.Log("[AFADownloader] Clear all cache file ");
+
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("[AFADownloader] Error while removing cached file: "+ ex.Message);
+        }
+    }
+}
